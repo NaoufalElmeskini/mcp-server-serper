@@ -18,16 +18,8 @@ import {SerperPrompts} from "./prompts/index.js";
 import http from "node:http";
 import {URL} from "node:url";
 
-// Initialize Serper client with API key from environment
-const serperApiKey = process.env.SERPER_API_KEY;
-if (!serperApiKey) {
-  throw new Error("SERPER_API_KEY environment variable is required");
-}
-
-// Create Serper client, search tool, and prompts
-const serperClient = new SerperClient(serperApiKey);
-const searchTools = new SerperSearchTools(serperClient);
-const prompts = new SerperPrompts(searchTools);
+// Fallback API key from environment
+const defaultApiKey = process.env.SERPER_API_KEY;
 
 // Create MCP server
 const server = new Server(
@@ -171,6 +163,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
  * Performs a web search using Serper API and returns results.
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  // Get API key from current session
+  const apiKey = currentApiKey || defaultApiKey;
+  if (!apiKey) {
+    throw new Error("No API key available. Please provide X-API-Key header or set SERPER_API_KEY environment variable");
+  }
+
+  // Create client and tools with the API key
+  const client = new SerperClient(apiKey);
+  const tools = new SerperSearchTools(client);
+
   switch (request.params.name) {
     case "google_search": {
       const {
@@ -203,7 +205,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       try {
-        const result = await searchTools.search({
+        const result = await tools.search({
           q: String(q),
           gl: String(gl),
           hl: String(hl),
@@ -242,7 +244,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const url = request.params.arguments?.url as string;
       const includeMarkdown = request.params.arguments
         ?.includeMarkdown as boolean;
-      const result = await searchTools.scrape({ url, includeMarkdown });
+      const result = await tools.scrape({ url, includeMarkdown });
       return {
         content: [
           {
@@ -260,18 +262,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // Handle prompts/list requests
 server.setRequestHandler(ListPromptsRequestSchema, async () => {
+  const apiKey = currentApiKey || defaultApiKey;
+  if (!apiKey) {
+    throw new Error("No API key available. Please provide X-API-Key header or set SERPER_API_KEY environment variable");
+  }
+  const client = new SerperClient(apiKey);
+  const tools = new SerperSearchTools(client);
+  const prompts = new SerperPrompts(tools);
   return prompts.listPrompts();
 });
 
 // Handle prompts/get requests
 server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const apiKey = currentApiKey || defaultApiKey;
+  if (!apiKey) {
+    throw new Error("No API key available. Please provide X-API-Key header or set SERPER_API_KEY environment variable");
+  }
+  const client = new SerperClient(apiKey);
+  const tools = new SerperSearchTools(client);
+  const prompts = new SerperPrompts(tools);
   return prompts.getPrompt(request.params.name, request.params.arguments || {});
 });
 
 /**
- * Storage for SSE transports indexed by session ID
+ * Storage for SSE transports and API keys indexed by session ID
  */
-const transports: Record<string, SSEServerTransport> = {};
+interface SessionData {
+  transport: SSEServerTransport;
+  apiKey?: string;
+}
+const sessions: Record<string, SessionData> = {};
+
+// Current API key (set during POST /message handling)
+let currentApiKey: string | undefined;
 
 /**
  * Start the HTTP server with SSE transport.
@@ -288,7 +311,7 @@ async function main() {
     // Enable CORS for testing
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-API-Key");
 
     // Handle CORS preflight
     if (req.method === "OPTIONS") {
@@ -309,14 +332,14 @@ async function main() {
       console.log(`[GET /sse] SessionId type: ${typeof sessionId}`);
       console.log(`[GET /sse] SessionId length: ${sessionId.length}`);
 
-      transports[sessionId] = transport;
-      console.log(`[GET /sse] Stored in transports. Total sessions: ${Object.keys(transports).length}`);
-      console.log(`[GET /sse] Available sessions:`, Object.keys(transports));
+      sessions[sessionId] = { transport };
+      console.log(`[GET /sse] Stored in sessions. Total sessions: ${Object.keys(sessions).length}`);
+      console.log(`[GET /sse] Available sessions:`, Object.keys(sessions));
 
       // Clean up on connection close
       res.on("close", () => {
         console.log(`[GET /sse] SSE connection closed for session: ${sessionId}`);
-        delete transports[sessionId];
+        delete sessions[sessionId];
       });
 
       // Connect server to transport
@@ -334,36 +357,36 @@ async function main() {
         return;
       }
 
+      // Extract API key from header
+      const apiKeyFromHeader = req.headers['x-api-key'] as string | undefined;
+
       console.log(`[POST /message] Received sessionId: "${sessionId}"`);
-      console.log(`[POST /message] SessionId length: ${sessionId?.length}`);
-      console.log(`[POST /message] SessionId charCodes:`, sessionId?.split('').map(c => c.charCodeAt(0)));
-      console.log(`[POST /message] Available sessions:`, Object.keys(transports));
+      console.log(`[POST /message] X-API-Key header:`, apiKeyFromHeader || 'NOT PROVIDED');
+      console.log(`[POST /message] Available sessions:`, Object.keys(sessions));
 
-      // Debug: compare with available sessions
-      const availableIds = Object.keys(transports);
-      if (availableIds.length > 0 && sessionId) {
-        const firstAvailable = availableIds[0];
-        console.log(`[POST /message] Comparing with first available: "${firstAvailable}"`);
-        console.log(`[POST /message] First available length: ${firstAvailable.length}`);
-        console.log(`[POST /message] Are they equal? ${sessionId === firstAvailable}`);
-      }
-
-      const transport = transports[sessionId!];
-      console.log(`[POST /message] Found transport:`, transport ? "YES" : "NO");
-
-      if (!transport) {
-        console.log(`[POST /message] ERROR: No active session found for sessionId: ${sessionId}`);
+      const session = sessions[sessionId!];
+      if (!session) {
+        console.log(`[POST /message] ERROR: No active session found`);
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
           error: `No active session found for sessionId: ${sessionId}`,
-          availableSessions: Object.keys(transports)
+          availableSessions: Object.keys(sessions)
         }));
         return;
       }
 
+      // Set current API key (from header or session or default)
+      currentApiKey = apiKeyFromHeader || session.apiKey || defaultApiKey;
+
+      // Store API key in session for future requests
+      if (apiKeyFromHeader) {
+        session.apiKey = apiKeyFromHeader;
+      }
+
+      console.log(`[POST /message] Using API Key:`, currentApiKey ? 'YES' : 'NO');
+
       // Handle the message through the transport
-      console.log(`[POST /message] Forwarding message to transport...`);
-      await transport.handlePostMessage(req, res);
+      await session.transport.handlePostMessage(req, res);
       return;
     }
 
@@ -373,7 +396,7 @@ async function main() {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         status: "ok",
-        activeSessions: Object.keys(transports).length
+        activeSessions: Object.keys(sessions).length
       }));
       return;
     }
