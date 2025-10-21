@@ -1,0 +1,117 @@
+{
+	"info": {
+		"_postman_id": "d7f6e537-2ee5-48fa-a535-e920a8ac314b",
+		"name": "mcp serper",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "8392433"
+	},
+	"item": [
+		{
+			"name": "health",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "toto",
+					"host": [
+						"toto"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "sse",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:3000/sse",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"sse"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "message tools/list",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"jsonrpc\": \"2.0\",\r\n    \"id\": 1,\r\n    \"method\": \"tools/list\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:3000/message?sessionId=2db786c5-2808-4969-9f44-89b2ce7e8eab",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"message"
+					],
+					"query": [
+						{
+							"key": "sessionId",
+							"value": "2db786c5-2808-4969-9f44-89b2ce7e8eab"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "message tools/call",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "X-API-Key",
+						"value": "e5036c4726588c84c8b123f3001bf5042eac47f6",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"jsonrpc\": \"2.0\",\r\n    \"id\": 1,\r\n    \"method\": \"tools/call\",\r\n    \"params\": {\r\n        \"name\": \"google_search\",\r\n        \"arguments\": {\r\n            \"q\": \"capitale du vietnam ?\",\r\n            \"gl\": \"ar\",\r\n            \"hl\": \"ar\"\r\n        }\r\n    }\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:3000/message?sessionId=f6f877c6-0ba7-44e8-8f41-04a20b73b9fe",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"message"
+					],
+					"query": [
+						{
+							"key": "sessionId",
+							"value": "f6f877c6-0ba7-44e8-8f41-04a20b73b9fe"
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
